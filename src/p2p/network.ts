@@ -65,9 +65,16 @@ export interface Snapshot {
 
 const ANNOUNCE_INTERVAL_MS = 5000
 const ROOM_ID = 'default'
+// A connection attempt that hasn't opened after this long is torn down and
+// retried on the peer's next announcement. Signaling events are ephemeral, so
+// an offer published before the other side was listening is simply lost —
+// without a retry the pair would deadlock forever.
+const CONNECT_RETRY_MS = 15000
 
 interface Connection {
   peer: Peer
+  /** When this connection attempt started (local clock), for retry pacing. */
+  createdAt: number
   connectedAt: number | null // self-reported timestamp from the remote peer
 }
 
@@ -132,7 +139,17 @@ export class Network {
   // ---- connection setup -------------------------------------------------
 
   private maybeConnect(peerId: string) {
-    if (peerId === selfId || this.connections.has(peerId)) return
+    if (peerId === selfId) return
+    const existing = this.connections.get(peerId)
+    if (existing) {
+      const stalled =
+        !existing.peer.isConnected &&
+        Date.now() - existing.createdAt > CONNECT_RETRY_MS
+      if (!stalled) return
+      // destroy() fires the close handler, which removes it from the map.
+      existing.peer.destroy()
+      this.connections.delete(peerId)
+    }
     // Deterministic initiator: the peer with the smaller ID makes the offer.
     const initiator = selfId < peerId
     this.createPeer(peerId, initiator)
@@ -140,7 +157,7 @@ export class Network {
 
   private createPeer(peerId: string, initiator: boolean): Connection {
     const peer = new Peer(initiator)
-    const conn: Connection = {peer, connectedAt: null}
+    const conn: Connection = {peer, createdAt: Date.now(), connectedAt: null}
     this.connections.set(peerId, conn)
 
     peer.setHandlers({
