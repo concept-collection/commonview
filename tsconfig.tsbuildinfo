@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/useNetwork.ts","./src/p2p/identity.ts","./src/p2p/network.ts","./src/p2p/nostr.ts","./src/p2p/peer.ts"],"version":"5.9.3"}
